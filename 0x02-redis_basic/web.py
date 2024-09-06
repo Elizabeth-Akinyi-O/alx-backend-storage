@@ -1,35 +1,36 @@
 #!/usr/bin/env python3
-
-""" Implementing an expiring web cache and tracker. """
-
+"""Implementing an expiring web cache and tracker"""
 import requests
 import redis
 from functools import wraps
 from typing import Callable
 
 
-_redis = redis.Redis()
+# Initialize Redis connection (include decode_responses for convenience)
+_redis = redis.Redis(decode_responses=True)
 
 
 def count_request(method: Callable) -> Callable:
-    """Count number of request sent to a URL"""
+    """Decorator that counts the number of requests sent to a URL."""
 
     @wraps(method)
     def wrapper(url):
-        """Wrapper function for decorator"""
+        """Wrapper function to track requests and cache the result."""
+        # Keys for request count and cached response
+        count_key = f"count:{url}"
+        cache_key = f"cached:{url}"
 
-        key = "count:{}".format(url)
-        value = "cached:{}".format(url)
+        # Increment request count for this URL
+        _redis.incr(count_key)
 
-        _redis.incr(key)
-        cache = _redis.get(value)
+        # Check if response is cached
+        cached_response = _redis.get(cache_key)
+        if cached_response:
+            return cached_response
 
-        if cache:
-            return cache.decode('utf-8')
-
+        # If not cached, fetch from the URL and cache the result
         html = method(url)
-        _redis.set(key, 0)
-        _redis.setex(value, 10, html)
+        _redis.setex(cache_key, 10, html)  # Cache expires in 10 seconds
         return html
 
     return wrapper
@@ -37,6 +38,6 @@ def count_request(method: Callable) -> Callable:
 
 @count_request
 def get_page(url: str) -> str:
-    """Obtain HTML content through URL"""
-    res = requests.get(url)
-    return res.text
+    """Fetch the HTML content of a given URL."""
+    response = requests.get(url)
+    return response.text
